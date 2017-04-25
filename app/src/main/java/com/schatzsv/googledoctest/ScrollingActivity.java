@@ -17,6 +17,7 @@ import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.drive.Drive;
 import com.google.android.gms.drive.DriveApi;
 import com.google.android.gms.drive.DriveFolder;
+import com.google.android.gms.drive.DriveId;
 import com.google.android.gms.drive.Metadata;
 import com.google.android.gms.drive.MetadataChangeSet;
 import com.google.android.gms.drive.query.Filters;
@@ -26,8 +27,11 @@ import com.google.android.gms.drive.query.SearchableField;
 public class ScrollingActivity extends AppCompatActivity
         implements GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks {
 
-    GoogleApiClient mGoogleApiClient;
     String TAG = "GoogleDocTest";
+
+    GoogleApiClient mGoogleApiClient;
+    DriveId mLogFolder;
+    DriveId mLogFile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,8 +75,8 @@ public class ScrollingActivity extends AppCompatActivity
     public void onConnected(Bundle connectionHint) {
         Log.d(TAG, "onConnected()");
         Query query = new Query.Builder()
-                .addFilter(Filters.and(Filters.eq(
-                        SearchableField.TITLE, "GoogleDocTest"),
+                .addFilter(Filters.and(
+                        Filters.eq(SearchableField.TITLE, "GoogleDocTest"),
                         Filters.eq(SearchableField.TRASHED, false)))
                 .build();
         Drive.DriveApi.query(mGoogleApiClient, query)
@@ -84,9 +88,10 @@ public class ScrollingActivity extends AppCompatActivity
                         } else {
                             boolean isFound = false;
                             for (Metadata m : result.getMetadataBuffer()) {
-                                if (m.getTitle().equals("GoogleDocTest")) {
+                                if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
                                     Log.d(TAG, "Folder exists");
                                     isFound = true;
+                                    mLogFolder = m.getDriveId();
                                     break;
                                 }
                             }
@@ -104,6 +109,7 @@ public class ScrollingActivity extends AppCompatActivity
                                                     Log.d(TAG, "Error while trying to create the folder");
                                                 } else {
                                                     Log.d(TAG, "Created a folder");
+                                                    mLogFolder = result.getDriveFolder().getDriveId();
                                                 }
                                             }
                                         });

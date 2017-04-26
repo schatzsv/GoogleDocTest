@@ -1,6 +1,7 @@
 package com.schatzsv.googledoctest;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -30,6 +31,8 @@ public class ScrollingActivity extends AppCompatActivity
     String TAG = "GoogleDocTest";
 
     GoogleApiClient mGoogleApiClient;
+    DriveId mInitFolder;
+    boolean mOpenLogFileRequestPending;
     DriveId mLogFolder;
     DriveId mLogFile;
 
@@ -47,6 +50,7 @@ public class ScrollingActivity extends AppCompatActivity
                 if (mGoogleApiClient.isConnected()) {
                     Snackbar.make(view, "Connected", Snackbar.LENGTH_LONG)
                             .setAction("Action", null).show();
+
                 } else {
                     Snackbar.make(view, "Not connected", Snackbar.LENGTH_LONG)
                             .setAction("Action", null).show();
@@ -91,7 +95,7 @@ public class ScrollingActivity extends AppCompatActivity
                                 if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
                                     Log.d(TAG, "Folder exists");
                                     isFound = true;
-                                    mLogFolder = m.getDriveId();
+                                    mInitFolder = m.getDriveId();
                                     break;
                                 }
                             }
@@ -109,7 +113,7 @@ public class ScrollingActivity extends AppCompatActivity
                                                     Log.d(TAG, "Error while trying to create the folder");
                                                 } else {
                                                     Log.d(TAG, "Created a folder");
-                                                    mLogFolder = result.getDriveFolder().getDriveId();
+                                                    mInitFolder = result.getDriveFolder().getDriveId();
                                                 }
                                             }
                                         });
@@ -146,11 +150,70 @@ public class ScrollingActivity extends AppCompatActivity
             boolean rv = mGoogleApiClient.isConnected();
             if (rv) {
                 Toast.makeText(this, "Connected", Toast.LENGTH_LONG).show();
-
+                openLogFile();
             }
 
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    void openLogFile() {
+        if (mOpenLogFileRequestPending) return;
+        mOpenLogFileRequestPending = true;
+        if (mLogFolder == null) {
+            //get log folder (will use first found if multiple)
+            Query query = new Query.Builder().addFilter(Filters.and(
+                Filters.eq(SearchableField.TITLE, "GoogleDocTest"),
+                Filters.eq(SearchableField.TRASHED, false))).build();
+            Drive.DriveApi.query(mGoogleApiClient, query)
+                    .setResultCallback(new ResultCallback<DriveApi.MetadataBufferResult>() {
+                @Override
+                public void onResult(DriveApi.MetadataBufferResult result) {
+                    if (result.getStatus().isSuccess()) {
+                        for (Metadata m : result.getMetadataBuffer()) {
+                            if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
+                                Log.d(TAG, "openLogFile() folder found");
+                                mLogFolder = m.getDriveId();
+                                mOpenLogFileRequestPending = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        Log.d(TAG, "openLogFile() get folder error");
+                        mOpenLogFileRequestPending = false;
+                    }
+                }
+            });
+        } else if (mLogFile == null) {
+            //create empty log file
+            String fileName = makeLogFileName();
+            MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
+                    .setTitle(fileName)
+                    .setMimeType("text/plain")
+                    .build();
+            mLogFolder.asDriveFolder()
+                    .createFile(mGoogleApiClient, changeSet, null)
+                    .setResultCallback(new ResultCallback<DriveFolder.DriveFileResult>() {
+                        @Override
+                        public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
+                            if (!driveFileResult.getStatus().isSuccess()) {
+                                Log.d(TAG, "openLogFile() file create error");
+                                mOpenLogFileRequestPending = false;
+                            } else {
+                                Log.d(TAG, "openLogFile() file created");
+                                mLogFile = driveFileResult.getDriveFile().getDriveId();
+                                mOpenLogFileRequestPending = false;
+                            }
+                        }
+                    });
+
+        } else {
+            mOpenLogFileRequestPending = false;
+        }
+    }
+
+    String makeLogFileName() {
+        return "LogFile" + System.currentTimeMillis();
     }
 }

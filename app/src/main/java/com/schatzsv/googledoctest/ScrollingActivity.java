@@ -40,11 +40,9 @@ public class ScrollingActivity extends AppCompatActivity
 
     String TAG = "GoogleDocTest";
 
+    // member variables used for logging
     GoogleApiClient mGoogleApiClient;
-    DriveId mInitFolder;
-    boolean mOpenLogFileRequestPending;
     DriveId mLogFolder;
-    DriveId mLogFileId;
     DriveFile mLogFile;
     DriveContents mLogFileContents;
     ParcelFileDescriptor mLogFilePFD;
@@ -86,6 +84,7 @@ public class ScrollingActivity extends AppCompatActivity
             }
         });
 
+        // get a google drive api client object
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .enableAutoManage(this, this)
                 .addApi(Drive.API)
@@ -97,9 +96,31 @@ public class ScrollingActivity extends AppCompatActivity
     }
 
     @Override
+    protected void onStop() {
+        Log.d(TAG, "onStop()");
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
-        closeLogFile();
+        Log.d(TAG, "onDestroy()");
         super.onDestroy();
+    }
+
+    @Override
+    protected void onRestart() {
+        Log.d(TAG, "onRestart()");
+        super.onRestart();
+    }
+
+    // onConnected(), onConnectionFailed(), onConnectionSuspended() are the callbacks associated
+    // with the google api object
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        Log.d(TAG, "onConnected()");
+        // getFolder()starts the process of setting up log file, if folder does not exist
+        // it is created and then the log file is created
+        getFolder();
     }
 
     @Override
@@ -108,57 +129,6 @@ public class ScrollingActivity extends AppCompatActivity
         // could not be established. Display an error message, or handle
         // the failure silently
         Log.d(TAG, "onConnectionFailed()");
-    }
-
-    @Override
-    public void onConnected(Bundle connectionHint) {
-        Log.d(TAG, "onConnected()");
-        getFolder();
-        /*
-        Query query = new Query.Builder()
-                .addFilter(Filters.and(
-                        Filters.eq(SearchableField.TITLE, "GoogleDocTest"),
-                        Filters.eq(SearchableField.TRASHED, false)))
-                .build();
-        Drive.DriveApi.query(mGoogleApiClient, query)
-                .setResultCallback(new ResultCallback<DriveApi.MetadataBufferResult>() {
-                    @Override
-                    public void onResult(DriveApi.MetadataBufferResult result) {
-                        if (!result.getStatus().isSuccess()) {
-                            Log.d(TAG, "Cannot create folder in the root.");
-                        } else {
-                            boolean isFound = false;
-                            for (Metadata m : result.getMetadataBuffer()) {
-                                if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
-                                    Log.d(TAG, "Folder exists");
-                                    isFound = true;
-                                    mInitFolder = m.getDriveId();
-                                    break;
-                                }
-                            }
-                            if (!isFound) {
-                                Log.d(TAG, "Folder not found; creating it.");
-                                MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
-                                        .setTitle("GoogleDocTest")
-                                        .build();
-                                Drive.DriveApi.getRootFolder(mGoogleApiClient)
-                                        .createFolder(mGoogleApiClient, changeSet)
-                                        .setResultCallback(new ResultCallback<DriveFolder.DriveFolderResult>() {
-                                            @Override
-                                            public void onResult(DriveFolder.DriveFolderResult result) {
-                                                if (!result.getStatus().isSuccess()) {
-                                                    Log.d(TAG, "Error while trying to create the folder");
-                                                } else {
-                                                    Log.d(TAG, "Created a folder");
-                                                    mInitFolder = result.getDriveFolder().getDriveId();
-                                                }
-                                            }
-                                        });
-                            }
-                        }
-                    }
-                });
-        */
     }
 
     @Override
@@ -188,70 +158,12 @@ public class ScrollingActivity extends AppCompatActivity
             boolean rv = mGoogleApiClient.isConnected();
             if (rv) {
                 Toast.makeText(this, "Connected", Toast.LENGTH_LONG).show();
-                // todo remove openLogFile();
             }
 
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
-
-    /*void openLogFile() {
-        if (mOpenLogFileRequestPending) return;
-        mOpenLogFileRequestPending = true;
-        if (mLogFolder == null) {
-            //get log folder (will use first found if multiple)
-            Query query = new Query.Builder().addFilter(Filters.and(
-                Filters.eq(SearchableField.TITLE, "GoogleDocTest"),
-                Filters.eq(SearchableField.TRASHED, false))).build();
-            Drive.DriveApi.query(mGoogleApiClient, query)
-                    .setResultCallback(new ResultCallback<DriveApi.MetadataBufferResult>() {
-                @Override
-                public void onResult(DriveApi.MetadataBufferResult result) {
-                    if (result.getStatus().isSuccess()) {
-                        for (Metadata m : result.getMetadataBuffer()) {
-                            if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
-                                Log.d(TAG, "openLogFile() folder found");
-                                mLogFolder = m.getDriveId();
-                                mOpenLogFileRequestPending = false;
-                                break;
-                            }
-                        }
-                    } else {
-                        Log.d(TAG, "openLogFile() get folder error");
-                        mOpenLogFileRequestPending = false;
-                    }
-                }
-            });
-        } else if (mLogFileId == null) {
-            //create empty log file
-            String fileName = makeLogFileName();
-            MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
-                    .setTitle(fileName)
-                    .setMimeType("text/plain")
-                    .build();
-            mLogFolder.asDriveFolder()
-                    .createFile(mGoogleApiClient, changeSet, null)
-                    .setResultCallback(new ResultCallback<DriveFolder.DriveFileResult>() {
-                        @Override
-                        public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
-                            if (!driveFileResult.getStatus().isSuccess()) {
-                                Log.d(TAG, "openLogFile() file create error");
-                                mOpenLogFileRequestPending = false;
-                            } else {
-                                Log.d(TAG, "openLogFile() file created");
-                                mLogFileId = driveFileResult.getDriveFile().getDriveId();
-                                mOpenLogFileRequestPending = false;
-                            }
-                        }
-                    });
-
-        } else if (mLogFile == null) {
-
-        } else {
-            mOpenLogFileRequestPending = false;
-        }
-    }*/
 
     String makeLogFileName() {
         return "LogFile" + System.currentTimeMillis();
@@ -263,19 +175,9 @@ public class ScrollingActivity extends AppCompatActivity
     }
 
     /*
-
-    GetFolder() //or create if necessary
-
-    createLogFile() // or skip is restart w/ existing log
-
-    openLogFile()
-
-    getLogFileContents()
-
-    writeToLogFile(String)
-
-    closeLogFile()
-
+    getFolder() - get the folder that contains log file, creates if necessary
+    createLogFile() - called by get folder to create log file (todo open existing if app continue)
+    writeToLogFile(String) - open file, write data, commit and close
      */
 
     void getFolder() {
@@ -311,12 +213,10 @@ public class ScrollingActivity extends AppCompatActivity
                                     public void onResult(DriveFolder.DriveFolderResult result) {
                                         if (!result.getStatus().isSuccess()) {
                                             Log.d(TAG, "getFolder() create log folder failed");
-                                            return;
                                         } else {
                                             Log.d(TAG, "Created a folder");
                                             mLogFolder = result.getDriveFolder().getDriveId();
                                             createLogFile();
-                                            return;
                                         }
                                     }
                                 });
@@ -342,52 +242,39 @@ public class ScrollingActivity extends AppCompatActivity
                     public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
                         if (!driveFileResult.getStatus().isSuccess()) {
                             Log.d(TAG, "createLogFile() file create error");
-                            return;
                         } else {
                             mLogFile = driveFileResult.getDriveFile();
-                            openLogFile();
                         }
                     }
                 });
     }
 
-    void openLogFile() {
-        Log.d(TAG, "openLogFile()");
+    void writeToLogFile(final String entry) {
+        Log.d(TAG, "writeToLogFile()");
         mLogFile.open(mGoogleApiClient, DriveFile.MODE_READ_WRITE, null)
                 .setResultCallback(new ResultCallback<DriveApi.DriveContentsResult>() {
                     @Override
                     public void onResult(@NonNull DriveApi.DriveContentsResult driveContentsResult) {
                         if (!driveContentsResult.getStatus().isSuccess()) {
-                            Log.d(TAG, "createLogFile() file create error");
-                            return;
+                            Log.d(TAG, "openLogFile() file create error");
                         } else {
                             mLogFileContents = driveContentsResult.getDriveContents();
                             mLogFilePFD = mLogFileContents.getParcelFileDescriptor();
-                            Log.d(TAG, "createLogFile() log file ready to write");
+                            try {
+                                FileInputStream fileInputStream = new FileInputStream(mLogFilePFD.getFileDescriptor());
+                                // Read to the end of the file.
+                                fileInputStream.read(new byte[fileInputStream.available()]);
+                                // Append to the file.
+                                FileOutputStream fileOutputStream = new FileOutputStream(mLogFilePFD.getFileDescriptor());
+                                Writer writer = new OutputStreamWriter(fileOutputStream);
+                                writer.write(entry);
+                                writer.close();
+                            } catch (IOException e) {
+                                Log.d(TAG, "writeToLogFile() IOException " + entry);
+                            }
+                            mLogFileContents.commit(mGoogleApiClient, null);
                         }
                     }
                 });
-    }
-
-    void closeLogFile() {
-        Log.d(TAG, "closeLogFile()");
-        if (mLogFileContents != null) {
-            mLogFileContents.commit(mGoogleApiClient, null);
-        }
-    }
-
-    void writeToLogFile(String entry) {
-        try {
-            FileInputStream fileInputStream = new FileInputStream(mLogFilePFD.getFileDescriptor());
-            // Read to the end of the file.
-            fileInputStream.read(new byte[fileInputStream.available()]);
-
-            // Append to the file.
-            FileOutputStream fileOutputStream = new FileOutputStream(mLogFilePFD.getFileDescriptor());
-            Writer writer = new OutputStreamWriter(fileOutputStream);
-            writer.write(entry);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
 }

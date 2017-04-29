@@ -3,13 +3,28 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:context="com.schatzsv.googledoctest.ScrollingActivity">
     <item
-        android:id="@+id/action_settings"
+        android:id="@+id/action_start"
         android:orderInCategory="100"
-        android:title="@string/action_settings"
+        android:title="@string/action_start"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_stop"
+        android:orderInCategory="101"
+        android:title="@string/action_stop"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_save"
+        android:orderInCategory="102"
+        android:title="@string/action_save"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_reset"
+        android:orderInCategory="103"
+        android:title="@string/action_reset"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_checkconn"
-        android:orderInCategory="101"
+        android:orderInCategory="104"
         android:title="@string/action_checkconn"
         app:showAsAction="never" />
 </menu>

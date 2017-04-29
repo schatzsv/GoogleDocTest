@@ -29,8 +29,11 @@ import com.google.android.gms.drive.query.Filters;
 import com.google.android.gms.drive.query.Query;
 import com.google.android.gms.drive.query.SearchableField;
 
-import java.io.FileInputStream;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
@@ -40,14 +43,7 @@ public class ScrollingActivity extends AppCompatActivity
 
     String TAG = "GoogleDocTest";
 
-    // member variables used for logging
-    GoogleApiClient mGoogleApiClient;
-    DriveId mLogFolder;
-    DriveFile mLogFile;
-    DriveContents mLogFileContents;
-    ParcelFileDescriptor mLogFilePFD;
-
-    // timer
+    // timer that generates log data for testing
     int line;
     Handler timerHandler = new Handler();
     Runnable timerRunnable = new Runnable() {
@@ -56,7 +52,8 @@ public class ScrollingActivity extends AppCompatActivity
             String entry;
             line++;
             entry = "Line" + line + "," + System.currentTimeMillis() + "\n";
-            logGoogle(entry);
+            Log.d(TAG, entry);
+            appendLogCache(entry);
             timerHandler.postDelayed(this, 1000);
         }
     };
@@ -84,15 +81,11 @@ public class ScrollingActivity extends AppCompatActivity
             }
         });
 
-        // get a google drive api client object
-        mGoogleApiClient = new GoogleApiClient.Builder(this)
-                .enableAutoManage(this, this)
-                .addApi(Drive.API)
-                .addScope(Drive.SCOPE_FILE)
-                .addConnectionCallbacks(this)
-                .build();
+        // initialize Google Play Services API
+        doInitGoogleApiClient();
 
-        timerHandler.postDelayed(timerRunnable, 5000);
+        // open log file
+        openLogCache();
     }
 
     @Override
@@ -113,29 +106,6 @@ public class ScrollingActivity extends AppCompatActivity
         super.onRestart();
     }
 
-    // onConnected(), onConnectionFailed(), onConnectionSuspended() are the callbacks associated
-    // with the google api object
-    @Override
-    public void onConnected(Bundle connectionHint) {
-        Log.d(TAG, "onConnected()");
-        // getFolder()starts the process of setting up log file, if folder does not exist
-        // it is created and then the log file is created
-        getFolder();
-    }
-
-    @Override
-    public void onConnectionFailed(ConnectionResult result) {
-        // An unresolvable error has occurred and a connection to Google APIs
-        // could not be established. Display an error message, or handle
-        // the failure silently
-        Log.d(TAG, "onConnectionFailed()");
-    }
-
-    @Override
-    public void onConnectionSuspended(int cause) {
-        Log.d(TAG, "onConnectionSuspended()");
-    }
-
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
@@ -151,7 +121,20 @@ public class ScrollingActivity extends AppCompatActivity
         int id = item.getItemId();
 
         //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
+        if (id == R.id.action_start) {
+            timerHandler.post(timerRunnable);
+            return true;
+        }
+        if (id == R.id.action_stop) {
+            timerHandler.removeCallbacks(timerRunnable);
+            return true;
+        }
+        if (id == R.id.action_save) {
+            saveLogToGoogleDrive();
+            return true;
+        }
+        if (id == R.id.action_reset) {
+            clearLogCache();
             return true;
         }
         if (id == R.id.action_checkconn) {
@@ -165,71 +148,114 @@ public class ScrollingActivity extends AppCompatActivity
         return super.onOptionsItemSelected(item);
     }
 
-    String makeLogFileName() {
-        return "LogFile" + System.currentTimeMillis();
-    }
 
-    void logGoogle(String l) {
-        Log.d(TAG, "logGoogle() " + l);
-        writeToLogFile(l);
-    }
 
     /*
-    getFolder() - get the folder that contains log file, creates if necessary
-    createLogFile() - called by get folder to create log file (todo open existing if app continue)
-    writeToLogFile(String) - open file, write data, commit and close
+     * Fields and methods for using Google APIs from Google Play Services. Google Play Services
+     * requires credentials via https://console.developers.google.com/apis/credentials, and a
+     * app/build.gradle dependency compile 'com.google.android.gms:play-services-drive:10.2.1'
      */
 
-    void getFolder() {
-        Log.d(TAG, "getFolder()");
+    GoogleApiClient mGoogleApiClient;
+
+    void doInitGoogleApiClient() {
+        // get a google drive api client object
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .enableAutoManage(this, this)
+                .addApi(Drive.API)
+                .addScope(Drive.SCOPE_FILE)
+                .addConnectionCallbacks(this)
+                .build();
+    }
+
+    // onConnected(), onConnectionFailed(), onConnectionSuspended() are the callbacks associated
+    // with the google api object
+
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        Log.d(TAG, "onConnected()");
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult result) {
+        Log.d(TAG, "onConnectionFailed()");
+    }
+
+    @Override
+    public void onConnectionSuspended(int cause) {
+        Log.d(TAG, "onConnectionSuspended()");
+    }
+
+
+
+    /*
+     * Fields and methods for using google document APIs to log application data to a file.  Google
+     * play services must be initialized first.
+     */
+
+    final String DIR_NAME = "GoogleDocTest";
+    DriveId mLogFolder;
+    DriveFile mLogFile;
+    DriveContents mLogFileContents;
+    ParcelFileDescriptor mLogFilePFD;
+    File logToSave;
+
+    String makeLogFileName() {
+        return "LogFile" + System.currentTimeMillis() + ".csv";
+    }
+
+    void saveLog(File f) {
+        logToSave = f;
+        getGdrFolder();
+    }
+
+    // getGdrFolder() - get the folder that contains log file, creates if necessary
+    // createLogFile() - called by get folder to create log file
+    // writeToLogFile(String) - open file, get and write cache data, commit and close
+
+    void getGdrFolder() {
         Query query = new Query.Builder()
                 .addFilter(Filters.and(
-                        Filters.eq(SearchableField.TITLE, "GoogleDocTest"),
+                        Filters.eq(SearchableField.TITLE, DIR_NAME),
                         Filters.eq(SearchableField.TRASHED, false)))
                 .build();
         Drive.DriveApi.query(mGoogleApiClient, query)
                 .setResultCallback(new ResultCallback<DriveApi.MetadataBufferResult>() {
                     @Override
-                    public void onResult(DriveApi.MetadataBufferResult result) {
+                    public void onResult(@NonNull DriveApi.MetadataBufferResult result) {
                         if (!result.getStatus().isSuccess()) {
-                            Log.d(TAG, "getFolder() query failed");
+                            Log.d(TAG, "getGdrFolder() query failed");
                             return;
                         }
                         for (Metadata m : result.getMetadataBuffer()) {
-                            if (m.getTitle().equals("GoogleDocTest") && m.isFolder()) {
+                            if (m.getTitle().equals(DIR_NAME) && m.isFolder()) {
                                 mLogFolder = m.getDriveId();
                                 createLogFile();
                                 return;
                             }
                         }
-                        Log.d(TAG, "getFolder() creating log folder");
                         MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
-                                .setTitle("GoogleDocTest")
+                                .setTitle(DIR_NAME)
                                 .build();
                         Drive.DriveApi.getRootFolder(mGoogleApiClient)
                                 .createFolder(mGoogleApiClient, changeSet)
                                 .setResultCallback(new ResultCallback<DriveFolder.DriveFolderResult>() {
                                     @Override
-                                    public void onResult(DriveFolder.DriveFolderResult result) {
+                                    public void onResult(@NonNull DriveFolder.DriveFolderResult result) {
                                         if (!result.getStatus().isSuccess()) {
                                             Log.d(TAG, "getFolder() create log folder failed");
                                         } else {
-                                            Log.d(TAG, "Created a folder");
                                             mLogFolder = result.getDriveFolder().getDriveId();
                                             createLogFile();
                                         }
                                     }
                                 });
-
-
                     }
                 });
     }
 
     void createLogFile() {
-        Log.d(TAG, "createLogFile()");
         //create empty log file
-        //todo check if a current logfile exists if restart
         String fileName = makeLogFileName();
         MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
                 .setTitle(fileName)
@@ -244,14 +270,14 @@ public class ScrollingActivity extends AppCompatActivity
                             Log.d(TAG, "createLogFile() file create error");
                         } else {
                             mLogFile = driveFileResult.getDriveFile();
+                            writeToLogFile();
                         }
                     }
                 });
     }
 
-    void writeToLogFile(final String entry) {
-        Log.d(TAG, "writeToLogFile()");
-        mLogFile.open(mGoogleApiClient, DriveFile.MODE_READ_WRITE, null)
+    void writeToLogFile() {
+        mLogFile.open(mGoogleApiClient, DriveFile.MODE_WRITE_ONLY, null)
                 .setResultCallback(new ResultCallback<DriveApi.DriveContentsResult>() {
                     @Override
                     public void onResult(@NonNull DriveApi.DriveContentsResult driveContentsResult) {
@@ -261,20 +287,59 @@ public class ScrollingActivity extends AppCompatActivity
                             mLogFileContents = driveContentsResult.getDriveContents();
                             mLogFilePFD = mLogFileContents.getParcelFileDescriptor();
                             try {
-                                FileInputStream fileInputStream = new FileInputStream(mLogFilePFD.getFileDescriptor());
-                                // Read to the end of the file.
-                                fileInputStream.read(new byte[fileInputStream.available()]);
-                                // Append to the file.
                                 FileOutputStream fileOutputStream = new FileOutputStream(mLogFilePFD.getFileDescriptor());
                                 Writer writer = new OutputStreamWriter(fileOutputStream);
-                                writer.write(entry);
+                                BufferedReader br = new BufferedReader(new FileReader(logToSave));
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    writer.write(line + "\n");
+                                }
                                 writer.close();
                             } catch (IOException e) {
-                                Log.d(TAG, "writeToLogFile() IOException " + entry);
+                                Log.d(TAG, "writeToLogFile() IOException");
                             }
                             mLogFileContents.commit(mGoogleApiClient, null);
                         }
                     }
                 });
     }
+
+    /*
+     * Fields and methods associated with internal storage. Internal storage is used to capture
+     * data that is eventually saved to a Google Drive file. This implementation uses device cache.
+     */
+
+    String CACHE_FILE_NAME = "GoogleDocTestLog";
+    File logFile;
+
+    void openLogCache() {
+        logFile = new File(getCacheDir(), CACHE_FILE_NAME);
+    }
+
+    void appendLogCache(String l) {
+        try {
+            FileOutputStream fos = new FileOutputStream(logFile, true);
+            fos.write(l.getBytes());
+            fos.close();
+        }
+        catch (FileNotFoundException e) {
+            Log.d(TAG, "appendLogCache() cache file not found");
+        }
+        catch (IOException e) {
+            Log.d(TAG, "appendLogCache() IO exception");
+        }
+    }
+
+    void saveLogToGoogleDrive() {
+        saveLog(logFile);
+    }
+
+    void clearLogCache() {
+        if (logFile.delete()) {
+            logFile = new File(getCacheDir(), CACHE_FILE_NAME);
+        } else {
+            Log.d(TAG, "clearLogCache() could not delete cache file");
+        }
+    }
+
 }
